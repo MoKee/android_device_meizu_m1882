@@ -13,3 +13,7 @@ $(call inherit-product, vendor/meizu/m1882/m1882-vendor.mk)
 DEVICE_PACKAGE_OVERLAYS += \
     $(LOCAL_PATH)/overlay \
     $(LOCAL_PATH)/overlay-mokee
+
+# Sensors
+PRODUCT_PACKAGES += \
+    android.hardware.sensors@1.0-service.m1882
