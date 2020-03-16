@@ -340,6 +340,10 @@ void Sensors::convertFromSensorEvents(
         Event *dst = &(*dstVec)[i];
 
         convertFromSensorEvent(src, dst);
+
+        if (dst->sensorType == SensorType::PROXIMITY) {
+            dst->u.scalar = 5;
+        }
     }
 }
 
