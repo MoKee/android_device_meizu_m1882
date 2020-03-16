@@ -37,3 +37,6 @@ PRODUCT_PRODUCT_PROPERTIES += \
 PRODUCT_PRODUCT_PROPERTIES += \
     fod.dimming.min=40 \
     fod.dimming.max=255
+
+PRODUCT_PRODUCT_PROPERTIES += \
+    sensors.disabled=28,29,30,31,32,33,34,35,36,37,38,39

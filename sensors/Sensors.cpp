@@ -21,6 +21,7 @@
 #include "multihal.h"
 
 #include <android-base/logging.h>
+#include <cutils/properties.h>
 
 #include <sys/stat.h>
 
@@ -152,6 +153,17 @@ Return<Result> Sensors::setOperationMode(OperationMode mode) {
 
 Return<Result> Sensors::activate(
         int32_t sensor_handle, bool enabled) {
+    char disabled[PROPERTY_VALUE_MAX];
+    char *id;
+    property_get("sensors.disabled", disabled, "");
+    id = strtok(disabled, ",");
+    while (id != NULL) {
+        if (sensor_handle == atoi(id)) {
+            LOG(ERROR) << "Ignored sensor_handle: " << sensor_handle;
+            return Result::OK;
+        }
+        id = strtok(NULL, ",");
+    }
     return ResultFromStatus(
             mSensorDevice->activate(
                 reinterpret_cast<sensors_poll_device_t *>(mSensorDevice),
