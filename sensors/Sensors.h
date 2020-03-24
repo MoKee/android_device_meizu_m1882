@@ -69,6 +69,21 @@ private:
     sensors_poll_device_1_t *mSensorDevice;
     std::mutex mPollLock;
 
+    int32_t mSensorHandleProximityWakeup;
+    int32_t mSensorHandleProximity;
+
+    int32_t mSensorHandleAmbientLightWakeup;
+    int32_t mSensorHandleAmbientLight;
+
+    bool mProximityWakeupEnabled;
+    bool mProximityEnabled;
+
+    bool mAmbientLightWakeupEnabled;
+    bool mAmbientLightEnabled;
+
+    bool mEmulatedProximityWakeupNear;
+    bool mEmulatedProximityNear;
+
     int getHalDeviceVersion() const;
 
     static void convertFromSensorEvents(
