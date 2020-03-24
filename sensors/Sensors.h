@@ -72,14 +72,21 @@ private:
     int32_t mSensorHandleProximityWakeup;
     int32_t mSensorHandleProximity;
 
-    bool isProximity(int32_t sensor_handle);
+    int32_t mSensorHandleAmbientLightWakeup;
+    int32_t mSensorHandleAmbientLight;
 
-    bool mAssumingProximityIsFar;
-    long mTimeProximityEnabled;
+    bool mProximityWakeupEnabled;
+    bool mProximityEnabled;
+
+    bool mAmbientLightWakeupEnabled;
+    bool mAmbientLightEnabled;
+
+    bool mEmulatedProximityWakeupNear;
+    bool mEmulatedProximityNear;
 
     int getHalDeviceVersion() const;
 
-    void convertFromSensorEvents(
+    static void convertFromSensorEvents(
             size_t count, const sensors_event_t *src, hidl_vec<Event> *dst);
 
     DISALLOW_COPY_AND_ASSIGN(Sensors);

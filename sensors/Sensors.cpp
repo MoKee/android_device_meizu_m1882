@@ -20,7 +20,6 @@
 #include "convert.h"
 #include "multihal.h"
 
-#include <time.h>
 #include <android-base/logging.h>
 
 #include <sys/stat.h>
@@ -56,20 +55,14 @@ static Result ResultFromStatus(status_t err) {
     }
 }
 
-static long millisec() {
-    timespec the_time;
-    clock_gettime(CLOCK_MONOTONIC, &the_time);
-    return the_time.tv_sec * 1000 + the_time.tv_nsec / 1000000;
-}
-
 Sensors::Sensors()
     : mInitCheck(NO_INIT),
       mSensorModule(nullptr),
       mSensorDevice(nullptr),
       mSensorHandleProximityWakeup(-1),
       mSensorHandleProximity(-1),
-      mAssumingProximityIsFar(false),
-      mTimeProximityEnabled(0) {
+      mSensorHandleAmbientLightWakeup(-1),
+      mSensorHandleAmbientLight(-1) {
     status_t err = OK;
     if (UseMultiHal()) {
         mSensorModule = ::get_multi_hal_module_info();
@@ -143,6 +136,10 @@ Return<void> Sensors::getSensorsList(getSensorsList_cb _hidl_cb) {
             mSensorHandleProximityWakeup = dst->sensorHandle;
         } else if (dst->name == "proximity") {
             mSensorHandleProximity = dst->sensorHandle;
+        } else if (dst->name == "ambient_light_wakeup") {
+            mSensorHandleAmbientLightWakeup = dst->sensorHandle;
+        } else if (dst->name == "ambient_light") {
+            mSensorHandleAmbientLight = dst->sensorHandle;
         }
     }
 
@@ -169,16 +166,48 @@ Return<Result> Sensors::setOperationMode(OperationMode mode) {
 
 Return<Result> Sensors::activate(
         int32_t sensor_handle, bool enabled) {
-    if (enabled && isProximity(sensor_handle)) {
-        LOG(INFO) << "Proximity " << sensor_handle << " enabled: " << enabled;
-        mAssumingProximityIsFar = true;
-        mTimeProximityEnabled = millisec();
+    if (sensor_handle == mSensorHandleProximityWakeup) {
+        mProximityWakeupEnabled = enabled;
+        if (!mAmbientLightWakeupEnabled) {
+            mSensorDevice->activate(
+                reinterpret_cast<sensors_poll_device_t *>(mSensorDevice),
+                mSensorHandleAmbientLightWakeup, enabled);
+        }
+    } else if (sensor_handle == mSensorHandleProximity) {
+        mProximityEnabled = enabled;
+        if (!mAmbientLightEnabled) {
+            mSensorDevice->activate(
+                reinterpret_cast<sensors_poll_device_t *>(mSensorDevice),
+                mSensorHandleAmbientLight, enabled);
+        }
+    } else if (sensor_handle == mSensorHandleAmbientLightWakeup) {
+        mAmbientLightWakeupEnabled = enabled;
+        if (mProximityWakeupEnabled) {
+            return Result::OK;
+        }
+    } else if (sensor_handle == mSensorHandleAmbientLight) {
+        mAmbientLightEnabled = enabled;
+        if (mProximityEnabled) {
+            return Result::OK;
+        }
     }
     return ResultFromStatus(
             mSensorDevice->activate(
                 reinterpret_cast<sensors_poll_device_t *>(mSensorDevice),
                 sensor_handle,
                 enabled));
+}
+
+static void appendProximityEvent(hidl_vec<Event> *events, size_t index,
+        int32_t sensor_handle, int64_t timestamp, bool near) {
+    (*events)[index] = {
+        .sensorHandle = sensor_handle,
+        .sensorType = SensorType::PROXIMITY,
+        .timestamp = timestamp,
+        .u = {
+            .scalar = near ? 0.0f : 5.0f
+        }
+    };
 }
 
 Return<void> Sensors::poll(int32_t maxCount, poll_cb _hidl_cb) {
@@ -249,6 +278,39 @@ Return<void> Sensors::poll(int32_t maxCount, poll_cb _hidl_cb) {
 
     out.resize(count);
     convertFromSensorEvents(err, data.get(), &out);
+
+    int64_t emulatedProximityWakeupChanged = 0;
+    int64_t emulatedProximityChanged = 0;
+    for (size_t i = 0; i < count; ++i) {
+        Event *evt = &out[i];
+        if (mProximityWakeupEnabled && evt->sensorHandle == mSensorHandleAmbientLightWakeup) {
+            bool near = evt->u.scalar < 30;
+            if (mEmulatedProximityWakeupNear != near) {
+                mEmulatedProximityWakeupNear = near;
+                emulatedProximityWakeupChanged = evt->timestamp;
+            }
+        } else if (mProximityEnabled && evt->sensorHandle == mSensorHandleAmbientLight) {
+            bool near = evt->u.scalar < 30;
+            if (mEmulatedProximityNear != near) {
+                mEmulatedProximityNear = near;
+                emulatedProximityChanged = evt->timestamp;
+            }
+        }
+    }
+    if (emulatedProximityWakeupChanged > 0) {
+        out.resize(count + 1);
+        appendProximityEvent(&out, count,
+                mSensorHandleProximityWakeup,
+                emulatedProximityWakeupChanged,
+                mEmulatedProximityWakeupNear);
+    }
+    if (emulatedProximityChanged > 0) {
+        out.resize(count + 1);
+        appendProximityEvent(&out, count,
+                mSensorHandleProximity,
+                emulatedProximityChanged,
+                mEmulatedProximityNear);
+    }
 
     _hidl_cb(Result::OK, out, dynamicSensorsAdded);
 
@@ -362,24 +424,7 @@ void Sensors::convertFromSensorEvents(
         Event *dst = &(*dstVec)[i];
 
         convertFromSensorEvent(src, dst);
-
-        if (isProximity(dst->sensorHandle) && mAssumingProximityIsFar
-                && dst->u.scalar == 0) {
-                mAssumingProximityIsFar = false;
-            long time = millisec() - mTimeProximityEnabled;
-            if (time < 500) {
-                dst->u.scalar = 5;
-                LOG(INFO) << "Assuming proximity is far within " << time << " ms";
-            } else {
-                LOG(INFO) << "Trust proximity change as valid in " << time << " ms";
-            }
-        }
     }
-}
-
-bool Sensors::isProximity(int32_t sensor_handle) {
-    return sensor_handle == mSensorHandleProximityWakeup
-        || sensor_handle == mSensorHandleProximity;
 }
 
 ISensors *HIDL_FETCH_ISensors(const char * /* hal */) {
